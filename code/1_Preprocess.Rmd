@@ -1,0 +1,148 @@
+---
+title: "Preprocess"
+output: html_document
+---
+
+# Call some libraries
+
+```{r , message=FALSE}
+library(mice)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+library(DMwR)
+library(grid)
+```
+
+# Read data
+
+```{r}
+data<-read.csv("./../data/framingham.csv",header=T)
+head(data)
+```
+
+# Dealing with missing values
+
+We first deal with the missing data in the dataset.
+
+```{r}
+# We can use the next command to explore the distribution of missing values
+#md.pattern(data[!complete.cases(data),])
+```
+
+
+The outcome of missing data:
+
+Missing values: heartRate:1,BMI:19,cigersPerDay:29,totChol:50,BPMeds:53,education:105,glucose:388.
+
+
+## HeartRate
+
+Use median to impute.
+
+```{r}
+summary(data[,'heartRate'])
+data[is.na(data$heartRate),"heartRate"]<-median(data$heartRate,na.rm=T)
+```
+
+## cigersPerDay
+
+Use median to impute. Note that cigerPerDay has strong relationship with currentSmoker. 
+
+```{r}
+sum(data$currentSmoker==0 & is.na(data$cigsPerDay))
+sum(data$currentSmoker==0 & data$cigsPerDay!=0)
+summary(data$cigsPerDay)
+summary(data[data$cigsPerDay>0,]$cigsPerDay)
+data[is.na(data$cigsPerDay),"cigsPerDay"]<-20
+```
+
+## BPMeds
+
+Use Fisher's lda to impute. We know BPMeds has strong relationship with sysBP and diaBP by piror knowledge.
+
+```{r}
+data$BPMeds<-as.factor(data$BPMeds)
+table(data$BPMeds,exclude=(useNA="ifany"))
+data_BP<-data[!is.na(data$BPMeds),c("sysBP","diaBP","BPMeds")]
+colMeans(data_BP[data_BP$BPMeds==1,1:2])
+colMeans(data_BP[data_BP$BPMeds==0,1:2])
+```
+
+A boxplot of BPMeds~sysBP and diaBP.
+
+```{r}
+p1<-ggplot(data=data_BP,aes(x=as.factor(BPMeds),y=sysBP,group=BPMeds,fill=BPMeds))+geom_boxplot()+xlab("BPMeds")
+p2<-ggplot(data=data_BP,aes(x=as.factor(BPMeds),y=diaBP,group=BPMeds,fill=BPMeds))+geom_boxplot()+xlab("BPMeds")
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(nrow=1,ncol=2)))
+vplayout <- function(x,y){viewport(layout.pos.row = x,layout.pos.col = y)}
+print(p1,vp=vplayout(1,1))
+print(p2,vp=vplayout(1,2))
+```
+
+The scatter plot of diaBP and sysBP by BPMeds.
+
+```{r}
+data$BPMeds<-as.factor(data$BPMeds)
+ggplot(data=data_BP,aes(x=sysBP,y=diaBP,colour=BPMeds))+geom_point()
+```
+
+```{r}
+cls<-lda(BPMeds~sysBP+diaBP,data=data_BP)
+table(data_BP$BPMeds,predict(cls,data=data_BP)$class)
+data[is.na(data$BPMeds),"BPMeds"]<-predict(cls,data[is.na(data$BPMeds),c("sysBP","diaBP")])$class
+any(is.na(data$BPMeds))
+```
+
+## BMI, totChol, glucose
+
+Use knn to impute and use cross validation to choose k.
+
+```{r}
+## This chunk need large amounts of time to run. We use MSE to choose k. We choose k=20 at last. The outcome of the chunk will not affect chunks behind it.
+
+#data_knn<-data[,c("age","sysBP","diaBP","heartRate","BMI","totChol","glucose")]
+#data_knn_complete<-data_knn[complete.cases(data_knn),]
+#set.seed(2020)
+#data_knn_complete$col<-sample(dim(data_knn_complete)[1])%%5+1
+#MSE<-matrix(0,ncol=1,nrow=200)
+#for(k in 1:50){
+#  for(i in 1:5){
+#    tmp<-data_knn_complete
+#    std<-tmp[tmp$col==i,c("BMI","totChol","glucose")]
+#    tmp[tmp$col==i,c("BMI","totChol","glucose")]<-NA
+#    tmp[,-8]<-knnImputation(tmp[,-8],k=k,meth="weighAvg")
+#    MSE[k,1]<-MSE[k,1]+sum((std-tmp[tmp$col==i,c("BMI","totChol","glucose")])^2)
+#  }
+#}
+```
+
+
+We use k=20 to do the knn imputation.
+
+```{r}
+data[,c("age","sysBP","diaBP","heartRate","BMI","totChol","glucose")]<-
+  knnImputation(data[,c("age","sysBP","diaBP","heartRate","BMI","totChol","glucose")],k=20,meth="weighAvg")
+data$BMI<-round(data$BMI,2)
+data$totChol<-round(data$totChol,0)
+data$glucose<-round(data$glucose,0)
+```
+
+## Education
+
+Use mode to impute. The chi-square test shows education does not have difference between levels.
+
+```{r}
+table(data$education,data$TenYearCHD)/rowSums(table(data$education,data$TenYearCHD))
+chisq.test(table(data$education,data$TenYearCHD))
+data[is.na(data$education),"education"]<-1
+```
+
+# Test and write data
+
+```{r}
+any(is.na(data))
+write.csv(data,"./../data/preprocess.csv",row.names=F)
+```
+

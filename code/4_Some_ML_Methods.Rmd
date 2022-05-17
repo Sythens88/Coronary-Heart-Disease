@@ -1,0 +1,137 @@
+---
+title: "Some ML Methods"
+output: html_document
+---
+
+# Call some libraries
+
+```{r message=FALSE}
+library(caret)
+library(pROC)
+library(rpart)
+library(rpart.plot)
+library(maptree)
+library(randomForest)
+```
+
+# Read Data
+
+```{r}
+train<-read.csv("./../data/train with smote.csv",header=T)
+test<-read.csv("./../data/test.csv",header=T)
+for(i in c(1,3,5,6,7,8,15)){
+  train[,i]<-as.factor(train[,i])
+  test[,i]<-as.factor(test[,i])
+}
+```
+
+# Decision Tree
+
+## Bulid Decision Tree
+
+We build a CART Decision Tree
+
+```{r}
+set.seed(2020)
+fit_cdt<-rpart(TenYearCHD~.,data=train)
+#windows()
+#rpart.plot(fit_cdt,type=4,fallen.leaves=T)
+```
+
+## Prune
+
+To avoid overfiiting, we prune the tree.
+
+```{r}
+plotcp(fit_cdt,minline=TRUE,lty=3,col=1,upper=c("size","splits","none"))
+fit_cdt_prune<-prune(fit_cdt,0.017)
+#windows()
+#rpart.plot(fit_cdt_prune,type=4,branch=1,fallen.leaves=T)
+draw.tree(fit_cdt_prune)
+```
+
+## Performance on Train Data and Test Data
+
+```{r}
+pred_cdt_prune_train<-predict(fit_cdt_prune,train,type="class")
+confusionMatrix(pred_cdt_prune_train, train$TenYearCHD) #0.7638,0.6602,0.8673
+pred_cdt_prune_test<-predict(fit_cdt_prune,test,type="class") 
+confusionMatrix(pred_cdt_prune_test, test$TenYearCHD) #0.645,0.6524,0.6032
+pred_cdt_prune_p<-predict(fit_cdt_prune,train,type="prob")[,2]
+roc_cdt_prune<-roc(train$TenYearCHD,pred_cdt_prune_p,quiet=T)
+plot(roc_cdt_prune, print.auc=TRUE, auc.polygon=TRUE,grid=c(0.1, 0.2),max.auc.polygon=TRUE,
+     auc.polygon.col="skyblue", print.thres=TRUE) #0.625
+pred_cdt_prune_p<-predict(fit_cdt_prune,test,type="prob")[,2]
+roc_cdt_prune<-roc(test$TenYearCHD,pred_cdt_prune_p,quiet=T)
+plot(roc_cdt_prune, print.auc=TRUE, auc.polygon=TRUE,grid=c(0.1, 0.2),max.auc.polygon=TRUE,
+     auc.polygon.col="skyblue", print.thres=TRUE) #0.625
+```
+
+# Random Forest
+
+## Hyperparameters
+
+This chunk will run for a long time.
+
+```{r}
+#rf_train<-train
+#set.seed(2020)
+#rf_train$cv<-ceiling(runif(4144,0,5))
+
+#mtry<-3:7
+#ntree<-seq(from=200,to=600,by=50)
+
+#iter<-matrix(0,nrow=length(mtry),ncol=length(ntree))
+#for(i in 1:length(mtry)){
+#  for (j in 1:length(ntree)){
+#    for(k in 1:5){
+#      set.seed(2020)
+#      fit_rf2<-randomForest(TenYearCHD~.,data=rf_train[rf_train$cv!=k,-16],mtry=mtry[i],ntree=ntree[j],proximity=T,importance=T)
+#      pred_rf2<-predict(fit_rf2,rf_train[rf_train$cv==k,])
+#      A<-as.matrix(table(pred_rf2,rf_train[rf_train$cv==k,"TenYearCHD"]))
+#      iter[i,j]<-iter[i,j]+sum(diag(A))/sum(A) 
+#    }
+#  iter[i,j]<-iter[i,j]/5
+#  }
+#}
+#iter
+#which(iter==iter[which.max(iter)],arr.ind=T)
+```
+
+## Model
+
+```{r}
+set.seed(2020)
+fit_rf2<-randomForest(TenYearCHD~.,data=train,proximity=T,importance=T,mtry=3,ntree=550)
+plot(fit_rf2, main="Random Forest (Error Rate vs. Number of Trees)")
+```
+
+
+## Performance on Train data and Test Data
+
+```{r}
+pred_rf2_train<-predict(fit_rf2,train)
+confusionMatrix(pred_rf2_train,train$TenYearCHD) #1,1,1
+pred_rf2_test<-predict(fit_rf2,test)
+confusionMatrix(pred_rf2_test,test$TenYearCHD) #0.7606,0.8352,0.3333
+
+pred_rf2_train_p<-predict(fit_rf2,train,type = "prob")[,1]
+roc_rf2<-roc(train$TenYearCHD,pred_rf2_train_p,quiet = T)
+plot(roc_rf2, print.auc=TRUE, auc.polygon=TRUE,grid=c(0.1, 0.2),max.auc.polygon=TRUE,
+     auc.polygon.col="skyblue", print.thres=TRUE) #0.687
+
+pred_rf2_test_p<-predict(fit_rf2,test,type = "prob")[,1]
+roc_rf2<-roc(test$TenYearCHD,pred_rf2_test_p,quiet = T)
+plot(roc_rf2, print.auc=TRUE, auc.polygon=TRUE,grid=c(0.1, 0.2),max.auc.polygon=TRUE,
+     auc.polygon.col="skyblue", print.thres=TRUE) #0.687
+```
+
+## Variable Importance
+
+```{r}
+fit_rf2$importance
+varImpPlot(fit_rf2,main="importance factor")
+```
+
+
+
